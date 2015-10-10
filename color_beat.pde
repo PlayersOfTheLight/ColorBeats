@@ -3,10 +3,6 @@
 
 /* Color Beat: Detect colors of colors on video and play audio corresponding to color*/
 
-
-//<A> Initialize libraries, data structures and constants 
-
-// Specify the libraries that will be used in this project 
 import processing.video.*;
 import gab.opencv.*;
 import java.awt.Rectangle;
@@ -15,58 +11,98 @@ import java.util.Collections;
 import ddf.minim.*;
 
 
-// Initialize video variables
-Capture cam; // Talks to the camera on the computer
-OpenCV opencv; // Processes pictures to identify the different colors on video and more...
-PImage src; //image grabbed from camera
+// Initialize video
+Capture cam;
+OpenCV opencv;
 
-// Initialize audio variables
-Minim minim; // Plays different audio files in different ways
-AudioPlayer[] sounds; // Reads audio files in different formats and puts them in in a format that Minim can play
-float track_volume; // volume at which a track is played
-int track_idx; // index corresponding to specific track in the sounds array
-
- // Size of the camera image
-int sWidth = 640; 
+// Initialize audio
+int maxColors = 3; //The maximum number of colors that can be detected by this application
+Minim minim;
+AudioPlayer[][] sounds;
+String[][] sound_files;
+int sound_file_option=2;//set to 0,1,2 
+int loop_sound=1; //set to 1 to loop sounds and 0 to play once
+int maxSoundsPerColor; //any color can trigger upto 5 sounds
+int sWidth = 640;
 int sHeight = 480;
 
-// Specify color detection constants 
-int maxColors = 3; //The maximum number of colors that can be detected by this application
-int rangeWidth = 5; //tolerance on color selection, this number can be increased to make it easier to detect colors or reduced to make it easier to kick out noise
+// <1> Set the range of Hue values for our filter
+//ArrayList<Integer> colors;
+int[] hues; //hue of the selected pixel
+int[] colors; 
+int[] ranked_colors; //rank index of color in descending order of area, sets correspondance to audio files
+float[] color_areas;
+float[] color_areas_ranked; //sorted areas of colors in descending order
+int rangeWidth = 5; //tolerance on color selection
 float minColorArea=200; //Minimum color area required to display bounding box and trigger sound
 
-//Specify color detection variables 
-int[] hues; //hue values of the selected pixels
-int[] colors; // color value of the selected pixels 
-PImage[] outputs; // binary images that are 1 where the color is detected and 0 elsewhere
-ArrayList<Contour> contours; // contours around detected color "blobs"
-float[] color_areas; // areas of different color contours
-float maxColorArea; //value of the largest color area 
-int maxColorAreaIdx; //index to identify the color in the color_areas array that has the largest area
+PImage[] outputs;
+PImage src;
+ArrayList<Contour> contours;
 
 int colorToChange = -1;
-//int ROI_is_set=-1;
-
-// variables corresponding to the extra functions rankColorAreas and playSoundMultiple //<>//
-int[] ranked_colors; //rank index of color in descending order of area
+float track_volume; 
+int track_idx; 
+int sound_idx;
 int skip_amount; 
-float[] color_areas_ranked; //sorted areas of colors in descending order
 
-//<B> Intialize camera streaming and display window, allocate memory, load files
 void setup() {
   
   String[] cameras = Capture.list(); //Get a list of all the cameras pluged in 
+   
+   
+  // Specify file names for all the sound files 
+  // Make sure there are as many audio tracks(first dimension of array) as there are colors 
+
+
+  if(sound_file_option==0){
+
+
+   // Initilize a list of audio files
+
+
+     maxSoundsPerColor=1;
+     sound_files= new String[maxColors][maxSoundsPerColor]; 
+
+     sound_files[0][0]="sound_0.wav";
+     sound_files[1][0]="sound_1.mp3";
+     sound_files[2][0]="sound_2.wav";
+
+}    
+  else if(sound_file_option==1){
+     
+     maxSoundsPerColor=5;
+     sound_files= new String[maxColors][maxSoundsPerColor]; 
+     
+     sound_files[0][0]="conga/conga-lick.wav";
+     sound_files[0][1]="conga/conga-muffled-2.wav";
+     sound_files[0][2]="conga/conga-open-1.wav";
+     sound_files[0][3]="conga/conga-open-2.wav";
+     sound_files[0][4]="conga/conga-slap-1.wav";
+
+     sound_files[1][0]="cymbal/belltree.wav";
+     sound_files[1][1]="cymbal/cymbal-ride-roll-long.wav";
+     sound_files[1][2]="cymbal/cymbal-sizzle-stick.wav";
+     sound_files[1][3]="cymbal/cymbal-splash-stick.wav";
+     sound_files[1][4]="cymbal/sleighbells.wav";
+     
+     sound_files[2][0]="flute/flute-alto-C-vib.wav";
+     sound_files[2][1]="flute/flute-alto-lick.wav";
+     sound_files[2][2]="flute/flute-C-octave0-vib.wav";
+     sound_files[2][3]="flute/flute-C-octave1-vib.wav";
+     sound_files[2][4]="flute/flute-C-octave2-vib.wav";  
+  }
+  else if(sound_file_option==2){ 
+     maxSoundsPerColor=1;
+     sound_files= new String[maxColors][maxSoundsPerColor]; 
+     sound_files[0][0]="comic/flexatone.wav"; 
+     sound_files[1][0]="comic/whistle-owl.wav"; 
+     sound_files[2][0]="comic/whistle-slide.wav";
+     
+  }  
   
-  // Initilize a list of audio files
-  String[] sound_files= new String[maxColors]; 
-  // Specify file names for all the sound files, add other sound files to the color_beat folder
-  // and specify the file name here 
-  // Make sure there are as many audio tracks as there are colors 
-     sound_files[0]="sound_0.wav";
-     sound_files[1]="sound_1.mp3";
-     sound_files[2]="sound_2.wav";
   
-  
+
   cam = new Capture(this, sWidth, sHeight);
   opencv = new OpenCV(this, cam.width, cam.height);
   contours = new ArrayList<Contour>();
@@ -94,9 +130,12 @@ void setup() {
    
     //Sound setup
     minim = new Minim(this);
-    sounds = new AudioPlayer[maxColors];
+    sounds = new AudioPlayer[maxColors][maxSoundsPerColor];
+
     for (int i=0; i<maxColors; i++){
-         sounds[i] = minim.loadFile(sound_files[i]);
+      for(int j=0; j<maxSoundsPerColor; j++){
+         sounds[i][j] = minim.loadFile(sound_files[i][j]);
+      }
     }
 
     cam.start();
@@ -105,14 +144,14 @@ void setup() {
   }
  }
 
-// <C> Run this function everytime the camera captures a new image
+
 void draw() {
   if (cam.available() == true) {
     cam.read();
   } 
   set(0, 0, cam);
   
-   // <1> Load the new frame of our movie in to OpenCV
+   // <2> Load the new frame of our movie in to OpenCV
   opencv.loadImage(cam);
   
   // Tell OpenCV to use color information
@@ -120,55 +159,33 @@ void draw() {
   src = opencv.getSnapshot();
   
   // <3> Tell OpenCV to work in HSV color space.
-  opencv.useColor(HSB);  
+  opencv.useColor(HSB);
 
-// <4> Detect any colors that are selected by the user
-//     save detected colors as binary images, the variable "outputs",
-//     that are 1 where the color is detected and 0 elsewhere
   detectColors();
-
-// <5> Display rectangles around the detected colors 
-// Store the areas of different color regions in the color_areas array 
+  
   displayImages(); 
 
-// <6> Loop through the color_areas and identify the color with the largest area
-  getMaxColorArea(); 
+  rankColorAreas(); 
   
-// <7> Play the track corresponding to largest area, mute all other tracks
-  playColorSound(); 
+  playColorSound();
  
-  
   // Print text if new color expected
   textSize(20);
   stroke(255);
   fill(255);
- 
- // saveFrame("VideoFrames/output####.jpg"); //store output as a picture frame that can be converted into a movie later
   
-   
-/*  if (ROI_is_set==-1) {
-    text("Select Region of Interest", 10,25);
-  }
-  
-  if (ROI_is_set>-1 && colorToChange > -1) {
-    text("click to change color " + colorToChange, 10, 25);
-  } else if(ROI_is_set>-1){
-    text("press key [1-3] to select color", 10, 25);
-  }*/
   if (colorToChange > -1) {
     text("click to change color " + colorToChange, 10, 25);
-  } else{
+  } else {
     text("press key [1-3] to select color", 10, 25);
   }
+  
  }
 
 //////////////////////
 // Detect Functions
 //////////////////////
 
-// <4> Detect any colors that are selected by the user
-//     save detected colors as binary images 
-//     that are 1 where the color is detected and 0 elsewhere
 void detectColors() {
     
   for (int i=0; i<hues.length; i++) {
@@ -178,23 +195,22 @@ void detectColors() {
     opencv.loadImage(src);
     opencv.useColor(HSB);
     
-    // <4.1> Copy the Hue channel of our image into 
+    // <4> Copy the Hue channel of our image into 
     //     the gray channel, which we process.
     opencv.setGray(opencv.getH().clone());
     
     int hueToDetect = hues[i];
     //println("index " + i + " - hue to detect: " + hueToDetect);
     
-    // <4.2> Filter the image based on the range of 
+    // <5> Filter the image based on the range of 
     //     hue values that match the object we want to track.
     opencv.inRange(hueToDetect-rangeWidth/2, hueToDetect+rangeWidth/2);
     
-    // <4.3> Image filtering to detect "blobs" of color    
-    opencv.erode(); //Remove small regions of detected color to get rid of noise
-    opencv.dilate(); //Make the remaining regions bigger to get "blobs" of colors 
-                    
+    // Add here some image filtering to detect blobs better       
+    opencv.erode();
+    opencv.dilate();
  
-    // <4.4> Save the processed image for reference.
+    // <6> Save the processed image for reference.
     outputs[i] = opencv.getSnapshot();
  
   }
@@ -202,36 +218,12 @@ void detectColors() {
 
 }
 
-// <6> Loop through the color_areas and identify the color with the largest area
-void getMaxColorArea(){
-
-  maxColorArea=-1.0; //initialize the max area to an immpossible value
-  maxColorAreaIdx=-1; // set index to a negative value to start with 
-  for (int i=0; i<maxColors; i++){
-    
-    //Identify the maximum area bigger than the last one in the array and bigger
-    // than the smallest area we allow
-      if(color_areas[i]>minColorArea &&
-         color_areas[i]>maxColorArea){
-              maxColorArea=color_areas[i]; 
-              maxColorAreaIdx=i;
-         }
-  }
-// maxColorArea now the largest area in the array and 
-// maxColorAreaIdx tells us which element in the array this area is 
-// If these values are negative, we didn't find an area that's big enough
-}
-
-
 //////////////////////
 // Display Functions
 //////////////////////
-//<5> Identify countours around the detected color "blobs", calculate the area
-// of the biggest contours detected in an image, in every color
-// Store all areas in the color_areas array for later
-// Make rectangles around the different color regions and display them
+
 void displayImages(){
-  // <5.1> Show images
+  // Show images
   image(src, 0, 0);
 
   for (int i=0; i<outputs.length; i++) {
@@ -239,14 +231,15 @@ void displayImages(){
     if (outputs[i] != null) {
       image(outputs[i], width-src.width/4, i*src.height/4, src.width/4, src.height/4);
       opencv.loadImage(outputs[i]);
-      //<5.2> Identify countours around the detected color "blobs"
       contours = opencv.findContours(true,true);
       if(contours.size()>0){
-        //<5.3> Make rectangles around the different color regions and display them
         displayContoursBoundingBoxes(i);
       }
     }
-  }
+      noStroke();
+      fill(colors[i]);
+      rect(src.width, i*src.height/4, 30, src.height/4);
+    }
     
 }
 
@@ -257,7 +250,6 @@ void displayContoursBoundingBoxes(int i) {
     Contour contour = contours.get(0); 
     color_areas[i]=contour.area();
 
-//Display color rectangles, but only if there are bigger than a minimum area
     if(color_areas[i]>minColorArea){
 
       Rectangle rect = contour.getBoundingBox();
@@ -275,48 +267,110 @@ void displayContoursBoundingBoxes(int i) {
 }
 
 
+//////////////////////
+// Sort Colors by Area
+//////////////////////
+void rankColorAreas(){
+  
+  // Rank colors by area 
+  color_areas_ranked=color_areas.clone();
+  for (int i=0; i<maxColors; i++){
+      ranked_colors[i]=i;
+  }
+
+  boolean swap_made= true;
+  while (swap_made==true){
+  for (int i=0; i<maxColors-1; i++){
+      if(color_areas_ranked[i]<color_areas_ranked[i+1]){
+         
+         float temp_float=color_areas_ranked[i];
+         color_areas_ranked[i]=color_areas_ranked[i+1];
+         color_areas_ranked[i+1]=temp_float; 
+         
+         int temp_int=ranked_colors[i];
+         ranked_colors[i]=ranked_colors[i+1];
+         ranked_colors[i+1]=temp_int;
+         
+         swap_made=true;
+         
+      }else{
+         swap_made=false;
+      }
+  } 
+ }  
+}
+
 
 //////////////////////
 // Audio Functions
 //////////////////////
-// <6> Loop through the color_areas and identify the color with the largest area
- void playColorSound(){
-   
-  
-   track_idx=maxColorAreaIdx; // This is the index corresponding to the largest color area
-    
- // Loop through all the tracks 
+ /*void playColorSoundMultiple(){
  for (int i=0; i<maxColors; i++){
-
- // Set the volume to the file volume if the track is paired to the the largest color area 
-   if(i==track_idx){ // Play track corresponding to the largest color area, if one is identified 
+   
+   track_idx=ranked_colors[i];
+   track_volume=10*log(color_areas_ranked[i]/color_areas_ranked[0]); 
+   
+   if(track_idx==0 &&
+      sounds[track_idx].isPlaying()==false &&
+      color_areas_ranked[track_idx]>0.1*color_areas_ranked[0]){
+        
+          sounds[track_idx].loop();
+          sounds[track_idx].setGain(track_volume);
+          
+   }else if(track_idx>0 &&
+            sounds[track_idx].isPlaying()==false &&
+            color_areas_ranked[track_idx]>0.1*color_areas_ranked[0]){
+        
+      // start a new track in sync with the previous track
+          skip_amount=sounds[track_idx-1].position();
+          sounds[track_idx].skip(skip_amount);      
+          sounds[track_idx].loop();
+          sounds[track_idx].setGain(track_volume);
+      
+   }else if(color_areas_ranked[track_idx]>0.1*color_areas_ranked[0] &&
+            sounds[track_idx].isPlaying()==true){
+      sounds[track_idx].setGain(track_volume);
+   }
+ }
+ }
+ */
+ 
+ void playColorSound(){
+ for (int i=0; i<maxColors; i++){
+   
+   sound_idx=ranked_colors[i];
+   track_idx=0;
+   
+   if(i==0 && 
+      color_areas[sound_idx]>minColorArea){
  
      track_volume=0.0; //gain in decibels
-     if(sounds[i].isPlaying()==false){
+     if(sounds[sound_idx][track_idx].isPlaying()==false){
           
-            sounds[i].loop();
-            sounds[i].setGain(track_volume);
+            sounds[sound_idx][track_idx].loop();
+            sounds[sound_idx][track_idx].setGain(track_volume);
             
-     }else if(sounds[i].isPlaying()==true){
+     }else if(sounds[sound_idx][track_idx].isPlaying()==true){
                 
-        sounds[i].setGain(track_volume);
+        sounds[sound_idx][track_idx].setGain(track_volume);
      }
      
    }
    else{
-  // Set the volume to much lower than file volume if the track is NOT paired to the the largest color area    
      track_volume=-60.0;//gain in decibels
-     if(sounds[i].isPlaying()==true){                
-        sounds[i].setGain(track_volume);
+     if(sounds[sound_idx][track_idx].isPlaying()==true){                
+        sounds[sound_idx][track_idx].setGain(track_volume);
      }
    }
+   
+   
+   
  }
-}
+ }
 
-//////////////////////////////////////////////
-// Functions to interact with the application
-// using the Keyboard / Mouse
-//////////////////////////////////////////////
+//////////////////////
+// Keyboard / Mouse
+//////////////////////
 
 void mousePressed() {
     
@@ -354,72 +408,3 @@ void keyPressed() {
 void keyReleased() {
   colorToChange = -1; 
 }
-
-/////////////////////////////////////////////////////
-// Some extra functions to play with
-/////////////////////////////////////////////////////
-// Sort Colors by Area 
-// This function can be swapped with getMaxColoArea()
-void rankColorAreas(){
-  
-  // Rank colors by area 
-  color_areas_ranked=color_areas.clone();
-  for (int i=0; i<maxColors; i++){
-      ranked_colors[i]=i;
-  }
-
-  boolean swap_made= true;
-  while (swap_made==true){
-  for (int i=0; i<maxColors-1; i++){
-      if(color_areas_ranked[i]<color_areas_ranked[i+1]){
-         
-         float temp_float=color_areas_ranked[i];
-         color_areas_ranked[i]=color_areas_ranked[i+1];
-         color_areas_ranked[i+1]=temp_float; 
-         
-         int temp_int=ranked_colors[i];
-         ranked_colors[i]=ranked_colors[i+1];
-         ranked_colors[i+1]=temp_int;
-         
-         swap_made=true;
-         
-      }else{
-         swap_made=false;
-      }
-  } 
- }  
-}
-
-// Play multiple sounds all at once
-// Adjust volume in proportion to color area
-// this function can be swapped with playColorSound
- void playColorSoundMultiple(){
- for (int i=0; i<maxColors; i++){
-   
-   track_idx=ranked_colors[i];
-   track_volume=10*log(color_areas_ranked[i]/color_areas_ranked[0]); 
-   
-   if(track_idx==0 &&
-      sounds[track_idx].isPlaying()==false &&
-      color_areas_ranked[track_idx]>0.1*color_areas_ranked[0]){
-        
-          sounds[track_idx].loop();
-          sounds[track_idx].setGain(track_volume);
-          
-   }else if(track_idx>0 &&
-            sounds[track_idx].isPlaying()==false &&
-            color_areas_ranked[track_idx]>0.1*color_areas_ranked[0]){
-        
-      // start a new track in sync with the previous track
-          skip_amount=sounds[track_idx-1].position();
-          sounds[track_idx].skip(skip_amount);      
-          sounds[track_idx].loop();
-          sounds[track_idx].setGain(track_volume);
-      
-   }else if(color_areas_ranked[track_idx]>0.1*color_areas_ranked[0] &&
-            sounds[track_idx].isPlaying()==true){
-      sounds[track_idx].setGain(track_volume);
-   }
- }
- }
- 
